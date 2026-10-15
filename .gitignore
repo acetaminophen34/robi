@@ -1,0 +1,36 @@
+# macOS
+.DS_Store
+
+# 権利関係を確認するまで除外
+Robi-heart/
+
+# 既存の独立したGit履歴
+robi_PCB/.history/
+
+# Python
+.venv/
+venv/
+__pycache__/
+*.pyc
+
+# Node.js
+node_modules/
+
+# 生成ファイル
+build/
+dist/
+
+# 認証情報
+.env
+.env.*
+!.env.example
+
+# 一時ファイル（暫定）
+temp/
+backup/
+
+# KiCad
+*.kicad_prl
+**/*-backups/
+robi_PCB/output/
+robi_PCB/output.zip

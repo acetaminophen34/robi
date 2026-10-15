@@ -1,0 +1,34 @@
+{
+  "model": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+  "threshold": 0.55,
+  "intents": {
+    "greeting": {
+      "description": "挨拶", "action": "greet", "motion_id": null,
+      "examples": ["こんにちは", "おはよう", "こんばんは", "やあ、ロビ", "ロビ、元気？", "久しぶりだね"]
+    },
+    "self_introduction": {
+      "description": "ロビへの自己紹介要求", "action": "introduce_self", "motion_id": null,
+      "examples": ["自己紹介して", "あなたの名前は何？", "ロビのことを教えて", "君は誰？", "どんなロボットなの？", "名前を教えてください"]
+    },
+    "dance_request": {
+      "description": "ダンス要求", "action": "dance", "motion_id": null,
+      "examples": ["踊って", "ダンスして", "ロビ、踊ってみて", "ダンスを見せて", "一緒に踊ろう", "踊ってくれる？"]
+    },
+    "thanks": {
+      "description": "感謝", "action": "respond_to_thanks", "motion_id": null,
+      "examples": ["ありがとう", "どうもありがとう", "助かったよ", "感謝しているよ", "おかげでうまくいった", "ありがとう、ロビ"]
+    },
+    "encouragement": {
+      "description": "ロビへの励まし", "action": "respond_to_encouragement", "motion_id": null,
+      "examples": ["頑張って", "応援しているよ", "ロビならできるよ", "負けないで", "その調子だよ", "あきらめないでね"]
+    },
+    "farewell": {
+      "description": "別れの挨拶", "action": "say_goodbye", "motion_id": null,
+      "examples": ["さようなら", "またね", "バイバイ", "また明日", "今日はこれでお別れ", "おやすみ、ロビ"]
+    },
+    "unknown": {
+      "description": "分類不能。例文は参考用で類似度の比較対象には含めない", "action": "ask_to_rephrase", "motion_id": null,
+      "examples": ["明日の天気は？", "今日の株価を教えて", "電車の時刻表を調べて", "この計算を解いて"]
+    }
+  }
+}
