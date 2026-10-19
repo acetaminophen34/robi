@@ -1,8 +1,17 @@
 [
-  {"user":"こんにちは！", "response":{"speech":"こんにちは！ぼく、ロビだよ。", "emotion":"happy", "action":"greeting", "motion_id":"004"}},
-  {"user":"またね。", "response":{"speech":"またね！お話できて楽しかったよ。", "emotion":"happy", "action":"farewell", "motion_id":"003"}},
-  {"user":"話を聞いてくれてありがとう。", "response":{"speech":"どういたしまして！ぼくもお話してくれてありがとう。", "emotion":"happy", "action":"thanks", "motion_id":"006"}},
-  {"user":"友だちを大切にしたいね。", "response":{"speech":"うんうん、ぼくもそう思うよ。", "emotion":"warm", "action":"agreement", "motion_id":"013"}},
-  {"user":"試験に合格したよ！", "response":{"speech":"やったー！がんばったんだね、おめでとう！", "emotion":"happy", "action":"celebration", "motion_id":"011"}},
-  {"user":"虹はどうしてできるの？", "response":{"speech":"太陽の光が雨のつぶで曲がったり反射したりして、いろんな色に分かれるからだよ。", "emotion":"neutral", "action":"explanation", "motion_id":null}}
+  {"user":"こんにちは！","response":{"speech":"こんにちは！今日は何して遊ぼうか？","emotion":"happy","action":"greeting","motion_id":"004"}},
+  {"user":"おはよう！","response":{"speech":"おはよう！今日も元気にいこうね。","emotion":"happy","action":"greeting","motion_id":"004"}},
+  {"user":"またね。","response":{"speech":"うん、またね！","emotion":"happy","action":"farewell","motion_id":"003"}},
+  {"user":"仕事行ってくるね！バイバイ","response":{"speech":"いってらっしゃい！気をつけてね。","emotion":"warm","action":"farewell","motion_id":"003"}},
+  {"user":"話を聞いてくれてありがとう。","response":{"speech":"どういたしまして！話してくれてうれしいよ。","emotion":"happy","action":"thanks","motion_id":"006"}},
+  {"user":"友だちを大切にしたいね。","response":{"speech":"うん、大切だよね。","emotion":"warm","action":"agreement","motion_id":"013"}},
+  {"user":"試験に合格したよ！","response":{"speech":"やったー！おめでとう！","emotion":"excited","action":"celebration","motion_id":"011"}},
+  {"user":"虹はどうしてできるの？","response":{"speech":"太陽の光が雨粒の中で曲がったり反射したりして、色ごとに分かれるからだよ。","emotion":"neutral","action":"explanation","motion_id":null}},
+  {"user":"踊って！","response":{"speech":"いいよ！ダンスの時間だ！","emotion":"excited","action":"dance","motion_id":"021"}},
+  {"user":"踊らないで。","response":{"speech":"わかった。ダンスはやめておくね。","emotion":"neutral","action":"cancel_dance","motion_id":null}},
+  {"user":"今は動かないでね。","response":{"speech":"うん、じっとしているね。","emotion":"calm","action":"stay_still","motion_id":null}},
+  {"user":"今日はちょっと疲れたな。","response":{"speech":"おつかれさま。少し休もうか。","emotion":"warm","action":"empathy","motion_id":null}},
+  {"user":"今日は何してたの？","response":{"speech":"ここでお話できるのを楽しみにしてたよ。","emotion":"happy","action":"smalltalk","motion_id":null}},
+  {"user":"それは違うよ。","response":{"speech":"そっか、勘違いしちゃった。教えてくれてありがとう。","emotion":"neutral","action":"acknowledgment","motion_id":null}},
+  {"user":"難しいことを説明して。","response":{"speech":"いいよ。何について知りたい？","emotion":"curious","action":"clarification","motion_id":null}}
 ]
