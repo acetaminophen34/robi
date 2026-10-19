@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Text-only Qwen3 chat for llama.cpp d3bd7193b (Python 3.6+)."""
+"""Persistent text-only Qwen3 chat for llama.cpp build5092 (Python 3.6+)."""
 import argparse
 import json
 import math
@@ -7,12 +7,11 @@ import os
 from pathlib import Path
 import subprocess
 import sys
-import tempfile
-import time
 
 BASE = Path(__file__).resolve().parent
 FIELDS = {"speech", "emotion", "action", "motion_id"}
-PATH_ENV = {"llama_cli": "ROBI_LLAMA_CLI", "model": "ROBI_MODEL",
+PATH_ENV = {"llama_server": "ROBI_LLAMA_SERVER", "log_dir": "ROBI_LLM_LOG_DIR",
+            "model": "ROBI_MODEL",
             "motion_index": "ROBI_MOTION_INDEX", "personality": "ROBI_PERSONALITY",
             "examples": "ROBI_EXAMPLES"}
 
@@ -57,14 +56,16 @@ def load_config(path):
         target = Path(value)
         config[key] = (path.parent / target).resolve()
     for key, minimum in (("gpu_layers", 0), ("threads", 1), ("context_length", 64),
-                         ("max_tokens", 1), ("history_turns", 0)):
+                         ("max_tokens", 1), ("history_turns", 0), ("batch_size", 1), ("ubatch_size", 1)):
         if type(config.get(key)) is not int or config[key] < minimum:
             raise ValueError("invalid integer setting: " + key)
-    for key in ("temperature", "timeout_seconds"):
+    for key in ("temperature", "timeout_seconds", "startup_timeout_seconds", "shutdown_timeout_seconds"):
         value = config.get(key)
         if type(value) not in (float, int) or not math.isfinite(value) or value < 0:
             raise ValueError("invalid number setting: " + key)
-    if config["timeout_seconds"] == 0 or config["max_tokens"] + 32 >= config["context_length"]:
+    if (any(config[k] == 0 for k in ("timeout_seconds", "startup_timeout_seconds", "shutdown_timeout_seconds"))
+            or config["max_tokens"] + 32 >= config["context_length"]
+            or config["ubatch_size"] > config["batch_size"]):
         raise ValueError("invalid timeout or context/generation budget")
     blocked = config.get("blocked_motion_ids")
     if not isinstance(blocked, list) or any(not isinstance(x, str) for x in blocked):
@@ -87,15 +88,6 @@ def validate_response(value, motions, blocked):
         if motion_id in blocked:
             raise ValueError("blocked motion_id: " + motion_id)
     return value
-
-
-def parse_output(text, motions, blocked):
-    # Pinned main.cpp prints this exact trailer at EOG. Never search for JSON.
-    text = text.strip()
-    trailer = " [end of text]"
-    if text.endswith(trailer):
-        text = text[:-len(trailer)].rstrip()
-    return validate_response(parse_json(text), motions, blocked)
 
 
 def message(role, text):
@@ -191,70 +183,17 @@ class Chat:
             else:
                 raise ValueError("prompt exceeds context budget; shorten input/settings or increase context_length")
 
-    def environment(self):
-        env = {k: v for k, v in os.environ.items()
-               if not k.startswith(("LLAMA_ARG_", "LLAMA_LOG_"))}
-        library_dir = str(self.config["llama_cli"].parent)
-        env["LD_LIBRARY_PATH"] = library_dir + (":" + env["LD_LIBRARY_PATH"]
-                                                   if env.get("LD_LIBRARY_PATH") else "")
-        return env
-
-    def preflight(self):
-        exe = self.config["llama_cli"]
-        if not exe.is_file() or not os.access(str(exe), os.X_OK):
-            raise ValueError("llama-cli missing or not executable: " + str(exe))
-        if not self.config["model"].is_file():
-            raise ValueError("GGUF model missing: " + str(self.config["model"]))
-        result = subprocess.run([str(exe), "--help"], stdout=subprocess.PIPE,
-                                stderr=subprocess.PIPE, env=self.environment(), timeout=30)
-        help_text = (result.stdout + result.stderr).decode("utf-8", "replace")
-        for flag in ("--json-schema", "--no-conversation", "--no-display-prompt",
-                     "--simple-io", "--no-escape", "--no-context-shift"):
-            if result.returncode != 0 or flag not in help_text:
-                raise ValueError("unsupported llama-cli; required option: " + flag)
-
-    def infer(self, user, debug=False):
-        metrics = {"json_success": False, "inference_seconds": None, "prompt_chars": None}
-        try:
-            prompt, sizes = self.build_prompt(user)
-            metrics.update(sizes)
-            with tempfile.TemporaryDirectory(prefix="robi-llm-") as directory:
-                prompt_file = Path(directory) / "prompt.txt"
-                prompt_file.write_text(prompt, encoding="utf-8")
-                c = self.config
-                argv = [str(c["llama_cli"]), "-m", str(c["model"]), "-ngl", str(c["gpu_layers"]),
-                        "-t", str(c["threads"]), "-c", str(c["context_length"]),
-                        "-n", str(c["max_tokens"]), "--temp", str(c["temperature"]),
-                        "--no-conversation", "--no-display-prompt", "--simple-io", "--no-escape",
-                        "--no-context-shift", "--json-schema", compact(self.schema()), "-f", str(prompt_file)]
-                started = time.monotonic()
-                try:
-                    result = subprocess.run(argv, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
-                                            stderr=subprocess.PIPE, env=self.environment(),
-                                            timeout=c["timeout_seconds"])
-                finally:
-                    metrics["inference_seconds"] = round(time.monotonic() - started, 3)
-                if debug or result.returncode != 0:
-                    print("[llama-cli stderr]\n" + result.stderr.decode("utf-8", "replace"), file=sys.stderr)
-                if result.returncode != 0:
-                    raise ValueError("llama-cli exited with code {}".format(result.returncode))
-                response = parse_output(result.stdout.decode("utf-8"), self.motions, self.blocked)
-            metrics.update(json_success=True, motion_id=response["motion_id"],
-                           motion_name=self.motions[response["motion_id"]]["name"]
-                           if response["motion_id"] is not None else None)
-            if c["history_turns"]:
-                self.history.append((user, response))
-                self.history = self.history[-c["history_turns"]:]
-            return response
-        finally:
-            print("[metrics] " + compact(metrics), file=sys.stderr)
+    def remember(self, user, response):
+        turns = self.config["history_turns"]
+        if turns:
+            self.history.append((user, response))
+            self.history = self.history[-turns:]
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", type=Path, default=Path(os.environ.get("ROBI_LLM_CONFIG", str(BASE / "config.json"))))
     parser.add_argument("--once", help="one text input, then exit")
-    parser.add_argument("--debug", action="store_true", help="show llama-cli stderr")
     parser.add_argument("--check-prompt", metavar="TEXT", help="validate assets and report prompt budget without inference")
     args = parser.parse_args()
     try:
@@ -263,23 +202,20 @@ def main():
             _, metrics = chat.build_prompt(args.check_prompt)
             print("[prompt-check, no inference] " + compact(metrics), file=sys.stderr)
             return 0
-        chat.preflight()
-        if args.once is not None:
-            print(compact(chat.infer(args.once, args.debug)), flush=True)
-            return 0
-        while True:
-            print("あなた> ", end="", file=sys.stderr, flush=True)
-            line = sys.stdin.readline()
-            if not line or line.strip() == "/quit":
+        from server import Server
+        with Server(chat) as server:
+            if args.once is not None:
+                print(compact(server.infer(args.once)), flush=True)
                 return 0
-            if not line.strip():
-                continue
-            try:
-                print(compact(chat.infer(line.strip(), args.debug)), flush=True)
-            except (ValueError, OSError, subprocess.SubprocessError) as exc:
-                print("[error] " + str(exc), file=sys.stderr)
+            while True:
+                print("あなた> ", end="", file=sys.stderr, flush=True)
+                line = sys.stdin.readline()
+                if not line or line.strip() == "/quit":
+                    return 0
+                if line.strip():
+                    print(compact(server.infer(line.strip())), flush=True)
     except (ValueError, OSError, subprocess.SubprocessError) as exc:
-        print("[error] " + str(exc), file=sys.stderr)
+        print("[error] " + str(exc).replace("\n", " ")[:300], file=sys.stderr)
         return 1
     except KeyboardInterrupt:
         print("\n[stopped]", file=sys.stderr)

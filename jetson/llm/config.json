@@ -1,5 +1,4 @@
 {
-  "llama_cli": "../../../jetson-lab/work/llama-cuda/build-gpu/bin/llama-cli",
   "model": "../../../jetson-lab/work/models/Qwen3-1.7B-Q4_K_M.gguf",
   "gpu_layers": 99,
   "threads": 4,
@@ -10,6 +9,14 @@
   "motion_index": "../../motion_editor/motions/index.json",
   "personality": "personality.md",
   "examples": "examples.json",
-  "blocked_motion_ids": ["023"],
-  "timeout_seconds": 600
+  "blocked_motion_ids": [
+    "023"
+  ],
+  "timeout_seconds": 600,
+  "llama_server": "../../../jetson-lab/work/llama-cuda/build-gpu/bin/llama-server",
+  "batch_size": 128,
+  "ubatch_size": 128,
+  "startup_timeout_seconds": 180,
+  "shutdown_timeout_seconds": 5,
+  "log_dir": "logs"
 }

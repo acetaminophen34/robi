@@ -34,3 +34,13 @@ backup/
 **/*-backups/
 robi_PCB/output/
 robi_PCB/output.zip
+
+# Local LLM assets and runtime state
+*.gguf
+prompt-cache*.bin
+jetson/llm/*.bin
+jetson/llm/models/
+jetson/llm/cache/
+jetson/llm/logs/
+*.log
+jetson/llm/config.local.json

@@ -13,6 +13,7 @@ ESP32を用いたサーボモーター制御、Pythonによる操作GUI・モー
 | `esp/head/` | 頭部のサーボ・LEDなどの制御 |
 | `esp/servo/` | サーボモーターの動作確認 |
 | `motion_editor/` | モーション作成・編集・再生用のPythonツール |
+| `jetson/llm/` | Qwen3常駐サーバーによるテキスト対話・モーション選択（[手順](jetson/llm/README.md)） |
 | `jetson/classification/` | Jetson向けの分類処理 |
 | `robi_PCB/` | KiCadによる制御基板の設計データ |
 

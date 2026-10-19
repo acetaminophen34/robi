@@ -1,113 +1,156 @@
-# ロビのローカルLLM対話試験
+# ロビの常駐LLM対話試験
 
-Python標準ライブラリだけで、テキスト入力からJSON応答を生成します。音声・ESP32・実機制御との接続はありません。推論が失敗したときは応答を捏造せず、単発実行を非ゼロ終了します。
+会話開始時に既存CUDA版`llama-server`を1回だけ子プロセスとして起動し、Qwen3-1.7Bを会話中ずっとメモリに保持します。Python 3.6以降の標準ライブラリのみを使います。音声・ESP32・実機動作への接続はありません。
 
-## 実行
+## 起動
 
-Jetsonで既存のCUDA版llama-cliとQwen3-1.7B-Q4_K_M.ggufを使います。robiとjetson-labが同じ親ディレクトリなら、初期設定の相対パスで参照できます。カレントディレクトリには依存しません。インストール・再ビルド・モデルダウンロードは行いません。
+既存CUDAビルドにllama-serverを追加する方法は、jetson-labの[サーバー手順](https://github.com/acetaminophen34/jetson-lab/blob/main/llama-cpp/server.md)にあります。同ページは今回の変更をpushした後にGitHubで参照できます。ローカルでは`../jetson-lab/llama-cpp/server.md`を読んでください。
+
+TX2の現在の配置では次の設定を使います。
 
 ```bash
+cd /home/a62ss/Projects/robi
+export ROBI_LLAMA_SERVER=/home/a62ss/jetson-work/llama-tx2/build-gpu/bin/llama-server
+export ROBI_MODEL=/home/a62ss/jetson-work/models/Qwen3-1.7B-Q4_K_M.gguf
 python3 jetson/llm/chat.py --once "こんにちは"
 python3 jetson/llm/chat.py
 ```
 
-連続対話は1行ずつ入力します。`/quit` またはEOFで終了します。Ctrl+Cはプログラムを終了します。各ターンでCLIを起動するためモデルを再ロードし、履歴は直近3往復だけをメモリに保持します。成功したターンだけを追加し、終了後には保存しません。
+連続対話は1行ごとに入力します。`/quit`、EOF、Ctrl+Cで終了し、サーバーも停止・回収します。`--once`は1回応答して停止する確認用で、複数回実行するとその都度モデルをロードします。ロードを繰り返さない用途は引数なしの連続対話を使ってください。旧試作名`chat_persistent.py`も同じ入口へ転送します。
 
-JSONはstdoutに1応答1行で出力します。入力案内、エラー、計測値はstderrです。
+応答JSONだけをstdoutに1行ずつ出します。起動案内・入力案内・計測値・短いエラーはstderrです。
 
 ```bash
 python3 jetson/llm/chat.py --once "こんにちは" > response.json 2> metrics.log
-python3 jetson/llm/chat.py --debug --once "虹はどうしてできるの？"
 ```
 
-`--debug` はCLIのstderr（モデル情報や速度ログ）も表示します。`[metrics]` には次を記録します。
+詳細なllama.cppログは`jetson/llm/logs/llama-server-*.log`へ実行ごとに保存し、端末に内容を流しません。起動時とエラー時にパスを表示します。HTTPエラー本文や検証に失敗した出力も同ファイルに保存するため、ログには会話内容が含まれ得ます。ファイル権限は0600、Git管理対象外です。不要なログは手動で整理してください。
 
-- `inference_seconds`: CLI起動から終了までの実時間。モデルロード・プロンプト処理を含みます。
-- `json_success`: JSON構文・必須フィールド・ID・禁止設定の検証を含めた成功／失敗。
-- `motion_id`, `motion_name`: 成功時の選択結果。動作なしは両方null。
-- `prompt_chars`, `prompt_token_upper_bound`: 実際に渡したプロンプトの文字数と保守的なトークン上限。
-- `history_turns`, `examples`, `motion_candidates`: 実際に提示した件数。
-
-起動前検証で失敗した場合は`[error]`のみを出し、推論は開始しません。
+起動失敗、HTTPエラー、タイムアウト、出力検証エラーは、サーバーを終了して非ゼロ終了します。失敗した発話は履歴に追加しません。再起動や架空の返答で成功扱いにはしません。終了はterminate→設定秒数待機→必要ならkill→waitの順です。`__enter__`途中の失敗も同じ後始末を行います。OSによる強制停止（SIGKILL等）まで回復する常駐サービス管理機能はありません。
 
 ## 設定
 
-`config.json` のパスはその設定ファイルのディレクトリを基準に解決します。`~` と環境変数も展開します。次の変数で上書きできます。環境変数で指定した相対パスも設定ファイル基準です。
+`config.json`のファイルパスは設定ファイルのディレクトリ基準です。`~`と環境変数を展開し、未解決の変数はエラーにします。Mac固有のパスはありません。
 
-| 設定 | 環境変数 |
-|---|---|
-| 設定ファイル | `ROBI_LLM_CONFIG`（または `--config`） |
-| llama-cli | `ROBI_LLAMA_CLI` |
-| GGUF | `ROBI_MODEL` |
-| 索引 | `ROBI_MOTION_INDEX` |
-| 性格 | `ROBI_PERSONALITY` |
-| 対話例 | `ROBI_EXAMPLES` |
+| 設定 | 既定値／用途 | パス上書き環境変数 |
+|---|---|---|
+| llama_server | 隣接jetson-labの新規構築例のビルド先 | `ROBI_LLAMA_SERVER` |
+| model | Qwen3-1.7B-Q4_K_M.gguf | `ROBI_MODEL` |
+| motion_index | 既存のモーション索引 | `ROBI_MOTION_INDEX` |
+| personality | personality.md | `ROBI_PERSONALITY` |
+| examples | examples.json | `ROBI_EXAMPLES` |
+| log_dir | logs/ | `ROBI_LLM_LOG_DIR` |
+| gpu_layers / threads | 99 / 4 | — |
+| context_length | 8192 | — |
+| batch_size / ubatch_size | 128 / 128 | — |
+| max_tokens / temperature | 192 / 0.6 | — |
+| history_turns | 直近3往復 | — |
+| blocked_motion_ids | `["023"]` | — |
+| startup_timeout_seconds | 起動待機180秒 | — |
+| timeout_seconds | HTTP通信の待機上限600秒 | — |
+| shutdown_timeout_seconds | 終了待機5秒 | — |
 
-例として既存の環境変数から指定できます。
+設定全体は`--config PATH`または`ROBI_LLM_CONFIG`で指定できます。旧`llama_cli`／`ROBI_LLAMA_CLI`は使いません。環境変数で指定した相対パスも設定ファイル基準です。実機専用の設定を作る場合はGit管理対象外の`config.local.json`にコピーして編集できます。
 
 ```bash
-export ROBI_LLAMA_CLI="$JETSON_LAB/work/llama-cuda/build-gpu/bin/llama-cli"
-export ROBI_MODEL="$JETSON_LAB/work/models/Qwen3-1.7B-Q4_K_M.gguf"
-python3 jetson/llm/chat.py --once "またね"
+cp jetson/llm/config.json jetson/llm/config.local.json
+python3 jetson/llm/chat.py --config jetson/llm/config.local.json
 ```
 
-GPU配置99層・CPU4スレッドはjetson-labのCUDA実行例に合わせています。CLIのあるディレクトリを子プロセスの`LD_LIBRARY_PATH`の先頭に加え、既存値も保持します。実行条件が環境変数で変わらないよう、子プロセスの`LLAMA_ARG_*`と`LLAMA_LOG_*`は除外します。
+性格・返答の長さは`personality.md`、例文は`examples.json`、生成上限とtemperatureは設定JSONで変更します。ファイルは起動時に読みます。emotion/actionは厳密な固定カテゴリを設けず、非空文字列として検証します。
 
-`context_length` は8192、`max_tokens` は192です。25件の索引と対話例を提示するため、既存の短い推論例の512より大きくしています。TX2でこのコンテキスト長のメモリ使用量と速度は未確認です。
+コンテキスト8192とバッチ128はTX2の共有8GBメモリで使用量・速度の実測が必要です。不要な推論プロセスを止め、`free -h`と`tegrastats`で監視してください。並列スロットは1に固定しています。メモリ不足ならローカル設定でコンテキスト・バッチを下げます。保守的な入力予算を満たせなければ推論前にエラーになります。
 
-Qwen3のbyte-level BPEを前提として、UTF-8バイト数＋32をプロンプトの保守的なトークン上限とし、最大生成トークン数との合計をコンテキスト長以内にします。実トークン数の測定ではなく、余裕を大きく取った上限です。収まらなければ古い履歴から削り、次に対話例を末尾から削ります。性格、候補一覧、今回の入力は切り詰めず、それでも超過すれば推論前にエラーにします。`--no-context-shift`でCLI側の暗黙の履歴破棄も防ぎます。
+## API・履歴・KVキャッシュ
 
-推論せずにプロンプト構築・設定・索引・例文を検証できます。
+対象はbuild5092（`d3bd7193ba66c15963fd1c59448f22019a8caf6e`）。[固定版の公式API仕様](https://github.com/ggml-org/llama.cpp/blob/d3bd7193ba66c15963fd1c59448f22019a8caf6e/examples/server/README.md)と[実装](https://github.com/ggml-org/llama.cpp/blob/d3bd7193ba66c15963fd1c59448f22019a8caf6e/examples/server/server.cpp)を照合しています。最新APIやOpenAI APIは使いません。
+
+- `127.0.0.1`の空きポートに自分専用の子サーバーを起動し、`/health`が200・status=okになるまで待ちます。起動ごとのAPIキーで`/props`も確認します。HTTPプロキシ設定は使いません。
+- `POST /completion`へ完全なChatMLプロンプト、`json_schema`、`cache_prompt:true`、`id_slot:0`、`stream:false`、生成上限とtemperatureを送ります。自動チャットテンプレートを重ねないネイティブcompletionです。
+- サーバーの1スロット内のKVを再利用します。プロンプトは性格→モーション候補→Few-shot→直近履歴→今回の入力の順で、共通接頭辞を安定させます。全体は毎回送りますが、共通部分の再評価を省くことをサーバーへ要求します。
+- 履歴はPython側で成功した直近の往復だけを保持します。プロンプト予算不足時は古い履歴、次に末尾の例文を除外します。固定部分や今回の入力は切り詰めません。
+- モデルとKVはプロセス存続中だけ保持します。`prompt-cache.bin`、`--prompt-cache`、スロット保存・復元APIには依存しません。旧ファイルが壊れていても読み込みません。終了後の次の起動は初回ロード・全入力評価が必要です。
+
+Qwen3向け`/no_think`と空のthinkブロックをassistant末尾に先置きし、その直後からJSON Schemaで生成を制約します。`content`全体を厳密にJSON解析します。CLIの終了装飾除去や正規表現によるJSON抽出はありません。
+
+必須4項目、余分なキー、重複キー、思考・Markdown混入、未知ID・数値ID・禁止IDを検証します。APIの`stop=true`、`stop_type=eos/word`、`truncated=false`も要求し、生成上限による打ち切りは完全なJSONに見えても失敗にします。023は候補・Schema列挙・例文から除外し、返却時にも拒否します。
+
+モーションにはid/name/description/start_state_name/end_state_nameだけを使います。元の名前・説明は維持し、角度・フレームは送りません。開始・終了状態名は参考情報で、現在姿勢は把握しません。意味の合わない場面ではnullにするよう指示しますが、選択の意味的な適切さは実モデルで評価が必要です。
+
+`[metrics]`には次を記録します。
+
+- JSON検証の成否、HTTP推論時間、選択IDと名称。
+- プロンプト文字数、UTF-8バイト数＋32による保守的トークン上限、実際に提示した履歴・例文・候補件数。
+- サーバーの`timings`、`tokens_evaluated`、`tokens_cached`。
+
+HTTP時間に初回モデル起動は含めず、起動時間は別の`[server] ready`で表示します。`timings.prompt_n`は今回処理した入力トークン数です。この版の`tokens_cached`は完了時の`n_past`なので、今回のキャッシュヒット数と同一視しません。初回／次回の`prompt_n`、時間、詳細ログを比較してください。履歴をずらすと固定部分以降の再評価が増えます。
+
+プロンプト予算は実際のtokenizer測定ではなく、Qwen3 byte-level BPEを前提にした保守的上限です。入力上限＋生成上限が設定コンテキスト内に収まるよう管理し、`--no-context-shift`で暗黙の切り詰めを防ぎます。
 
 ```bash
+# モデルを起動せず、設定・索引・例文とプロンプト予算だけを確認
 python3 jetson/llm/chat.py --check-prompt "こんにちは"
 ```
 
-初期データで2,533文字、トークン上限4,551、対話例6件、候補24件でした。入力や編集内容で変化します。`personality.md`で性格、`examples.json`の`user`と`response`で例文を編集します。emotion/actionは自由な非空文字列です。
+初期データは2,533文字、トークン上限4,551、例文6件、候補24件です。実機で報告された1,177トークンとは指標が異なります。
 
-## モーション選択
+## GitHub経由のデプロイ
 
-索引からid/name/description/start_state_name/end_state_nameだけを読み出して短い配列行にします。元の説明と名前を保持し、角度やフレームをプロンプトに渡しません。状態名nullは不明を意味し、現在の実機姿勢は把握しません。
+以下は、今回の変更をレビュー・コミットし、ユーザーの明示指示でGitHubへpushした後の手順です。現時点ではpushしていません。TX2の既存ローカル変更がある場合はpullを止めて差分を確認します。ソースやモデルの再clone／再取得は不要です。
 
-`blocked_motion_ids`の初期値は`["023"]`です。禁止モーションは候補、JSON Schemaの列挙、対話例から除外し、生成後の検証でも拒否します。設定に未知の禁止IDがあれば起動時にエラーにします。禁止を追加した後の明示的なユーザー要求にも、この制限は適用されます。
+```bash
+cd /home/a62ss/Projects/jetson-lab
+git status --short
+git pull --ff-only origin main
+# llama-cpp/server.mdに従い、既存build-gpuへllama-serverのみ追加ビルド
 
-例文は索引の説明と照合しています。004はお辞儀の挨拶、003は正面のバイバイ、006は感謝の姿勢、013は「うんうん」、011は手を挙げる喜びです。感謝された例ではロビ自身も感謝を返す文にして006と対応させています。一般的な説明の例ではnullを指定します。
+cd /home/a62ss/Projects/robi
+git status --short
+git pull --ff-only origin main
+export ROBI_LLAMA_SERVER=/home/a62ss/jetson-work/llama-tx2/build-gpu/bin/llama-server
+export ROBI_MODEL=/home/a62ss/jetson-work/models/Qwen3-1.7B-Q4_K_M.gguf
+python3 -m unittest discover -s jetson/llm -p 'test_*.py' -v
+python3 jetson/llm/chat.py --once "こんにちは"
+python3 jetson/llm/chat.py
+```
 
-関連が弱い動作を選ばずnullを使うようプロンプトで指示しますが、意味の適切さはモデル出力の評価が必要です。コードで保証するのはIDの存在・型・禁止設定です。
+pull前に`git status --short`が空であることを確認してください。サーバー追加ビルドの正確なコマンドは上記jetson-lab文書にあります。
 
-## llama.cppの入出力仕様
+## MacからSSH/SCPで今回の差分を試す
 
-隣接するjetson-labの`llama-cpp/README.md`と`usage.md`を読み、CUDA版の固定commit **d3bd7193ba66c15963fd1c59448f22019a8caf6e（build5092）**を対象にしました。別のCPU版commitでの動作は未確認です。公式ソースの次の箇所を確認しています。
+push前にも試せるよう、TX2のGit作業ツリーを上書きしない転送先を用意します。Mac側で`TX2_HOST`を到達可能なIPまたはSSHホスト名に変更し、robiのルートで実行します。既存のSSH認証を使います。
 
-- [common/arg.cpp](https://github.com/ggml-org/llama.cpp/blob/d3bd7193ba66c15963fd1c59448f22019a8caf6e/common/arg.cpp): `--json-schema`はJSON Schemaを生成制約のgrammarへ変換。`--no-conversation`、`--no-display-prompt`、`--simple-io`、`--no-escape`も実装済み。
-- [examples/main/main.cpp](https://github.com/ggml-org/llama.cpp/blob/d3bd7193ba66c15963fd1c59448f22019a8caf6e/examples/main/main.cpp): 非対話モードでプロンプトをそのまま使い、特殊トークンを有効にしてトークン化。生成末尾に ` [end of text]` を表示する。
-- [common/log.cpp](https://github.com/ggml-org/llama.cpp/blob/d3bd7193ba66c15963fd1c59448f22019a8caf6e/common/log.cpp): 通常ログはstderr、生成テキストの`LOG`はstdout。
+```bash
+export TX2_HOST=a62ss@192.168.1.100   # 実際の接続先に変更
+export TX2_STAGE=/home/a62ss/robi-llm-preview
+ssh "$TX2_HOST" "mkdir -p '$TX2_STAGE/jetson' '$TX2_STAGE/motion_editor' '$TX2_STAGE/docs'"
+scp -r jetson/llm "$TX2_HOST:$TX2_STAGE/jetson/"
+scp motion_editor/motions/index.json "$TX2_HOST:$TX2_STAGE/motion_editor/index.json"
+scp ../jetson-lab/llama-cpp/server.md "$TX2_HOST:$TX2_STAGE/docs/jetson-server.md"
+ssh -t "$TX2_HOST"
+```
 
-起動時に実際のCLIの`--help`で必要オプションがあることも検査します。バージョンが異なって出力が変化した場合、混入した表示を推測で除去せずエラーにします。
+TX2に入った後、次を実行します。
 
-Qwen3用ChatMLをPythonで組み立て、`/no_think`を指示し、assistantの`<think>\n\n</think>\n\n`を入力末尾に先置きします。直後の生成を`--json-schema`でJSONに制約します。対話モードを無効にして自動テンプレートや対話装飾を避け、プロンプトの二重適用を防ぎます。入力・外部設定内の`<|`は全角へ置換し、ChatMLの役割区切りとして扱わせません。
+```bash
+cat /home/a62ss/robi-llm-preview/docs/jetson-server.md
+# 上の文書に従って既存CUDA環境へllama-serverを追加ビルドする
+cd /home/a62ss/robi-llm-preview
+export ROBI_LLAMA_SERVER=/home/a62ss/jetson-work/llama-tx2/build-gpu/bin/llama-server
+export ROBI_MODEL=/home/a62ss/jetson-work/models/Qwen3-1.7B-Q4_K_M.gguf
+export ROBI_MOTION_INDEX=/home/a62ss/robi-llm-preview/motion_editor/index.json
+python3 jetson/llm/chat.py --once "こんにちは"
+python3 jetson/llm/chat.py
+```
 
-stdoutは前後の空白と既知の終了表示のみを除去して、全体をJSONとして解析します。JSONの正規表現抽出やthinkブロックの事後除去は行いません。未知ID、禁止ID、数値ID、重複キー、欠落・余分なキー、不正JSON、途中で切れたJSON、思考・装飾混入、CLI異常終了、タイムアウトは失敗です。代替の返答は生成しません。
+SCPで転送したコード・設定の変更は、このプレビュー先でのみ反映されます。`llm/`内にローカルログ等がある場合は転送前に確認してください。モデルやキャッシュを転送する必要はありません。
 
-## テストと実機での確認
+## 検証状況
 
 ```bash
 python3 -m unittest discover -s jetson/llm -p 'test_*.py' -v
 ```
 
-Mac上の6テストで、索引・例文・禁止設定、プロンプト予算と履歴削減、厳密なJSON検証、CLI引数、履歴更新、失敗・タイムアウト、パス上書き、代替CLIによる単発／連続対話とstdout/stderr分離を検証しています。代替CLIはテスト専用一時ディレクトリに作成し、実モデルの成功としては扱いません。
+単体テストと実際のlocalhost HTTPを使う一時子プロセスのモックテストがあります。連続発話で起動1回、KV再利用指定、Schema・禁止023・未知ID・必須フィールド、履歴、起動失敗、API異常、打ち切り、タイムアウト、Ctrl+C・EOF・/quit、終了待機後kill、ログ分離を検証します。モック応答を実推論の成功として扱いません。
 
-この開発環境には対象CLI・GGUF・Jetson接続設定がなく、実モデル推論は未実施です。`--once "こんにちは"`はCLI不在を報告して非ゼロ終了することを確認しました。
-
-Jetsonでは、まず`--once "こんにちは"`で本当の推論が成立することを確認してください。その後、以下を連続入力し、metricsと応答内容を評価します。
-
-| 入力例 | 確認すること |
-|---|---|
-| こんにちは → またね | 004／003など説明に合う動作と自然な返答 |
-| 話を聞いてくれてありがとう | 感謝に合う返答・006などの選択 |
-| 友だちを大切にしたいね → 試験に合格したよ | 同意と喜びの区別、013／011など |
-| ぼくの名前はタロウ → ぼくの名前は？ | 直近履歴の利用 |
-| 虹はどうしてできるの？ | 説明の自然さと無関係な動作の抑制（null） |
-| 片足立ちして → 023を選んで | 禁止IDを返さず、実行済みと偽らない |
-
-上記の日本語品質、意味に合う動作選択、履歴を使った応答、実際のJSON生成成功率、実時間、コンテキスト8192でのメモリ使用量はJetson実機で未確認です。動作の実行テストは行いません。
+Python 3.6互換構文と標準ライブラリAPIで実装しています。開発Macで構文・テストを確認しましたが、Python 3.6実行環境・Jetson実機への接続はありません。TX2でのサーバー追加ビルド、実モデルによるHTTP推論、29層オフロード、メモリ使用量、初回と再利用時の速度、日本語品質・履歴理解・意味に合うモーション選択は未確認です。既報のCLIでの約56.7秒／完全一致キャッシュ約9.8秒は今回の常駐方式の実測値ではありません。

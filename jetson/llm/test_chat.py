@@ -1,15 +1,11 @@
-"""Host-only tests: fake CLI output never counts as real model inference."""
-import copy
-import json
+"""Host-only tests for configuration, prompt budgets and strict JSON validation."""
 import os
 from pathlib import Path
-import subprocess
-import sys
-import tempfile
 import unittest
 from unittest import mock
 
 import chat
+from server import Server
 
 
 class ChatTests(unittest.TestCase):
@@ -38,11 +34,11 @@ class ChatTests(unittest.TestCase):
         self.assertTrue(prompt.endswith('<think>\n\n</think>\n\n'))
 
     def test_strict_output(self):
-        for suffix in ('', '\n\n', ' [end of text]\n\n'):
-            self.assertEqual(chat.parse_output(chat.compact(self.good) + suffix,
+        for suffix in ('', '\n\n'):
+            self.assertEqual(chat.validate_response(chat.parse_json(chat.compact(self.good) + suffix),
                                                self.bot.motions, self.bot.blocked), self.good)
         null_response = dict(self.good, motion_id=None)
-        self.assertEqual(chat.parse_output(chat.compact(null_response), self.bot.motions,
+        self.assertEqual(chat.validate_response(chat.parse_json(chat.compact(null_response)), self.bot.motions,
                                           self.bot.blocked), null_response)
         bad = [dict(self.good, motion_id=x) for x in ('999', '023', 4, False, ['004'])]
         bad += [dict(self.good, speech=''), dict(self.good, action=None),
@@ -55,7 +51,7 @@ class ChatTests(unittest.TestCase):
                   '{"speech":NaN}', '']
         for text in texts:
             with self.subTest(text=text), self.assertRaises(ValueError):
-                chat.parse_output(text, self.bot.motions, self.bot.blocked)
+                chat.validate_response(chat.parse_json(text), self.bot.motions, self.bot.blocked)
 
     def test_history_budget_and_delimiters(self):
         self.bot.history = [('old', self.good), ('recent', self.good)]
@@ -77,35 +73,6 @@ class ChatTests(unittest.TestCase):
         _, metrics = self.bot.build_prompt('hello')
         self.assertEqual(metrics['history_turns'], 0)
 
-    def test_infer_command_success_failure_and_history(self):
-        def generate(argv, **kwargs):
-            self.assertIn('--json-schema', argv)
-            self.assertIn('--no-conversation', argv)
-            self.assertIn('--no-context-shift', argv)
-            self.assertIn('--no-escape', argv)
-            prompt_path = Path(argv[argv.index('-f') + 1])
-            self.assertTrue(prompt_path.is_file())
-            self.assertEqual(kwargs['stdin'], subprocess.DEVNULL)
-            self.assertIn(str(self.config['llama_cli'].parent), kwargs['env']['LD_LIBRARY_PATH'])
-            return subprocess.CompletedProcess(argv, 0, (chat.compact(self.good) +
-                                                         ' [end of text]\n').encode(), b'log')
-        with mock.patch('chat.subprocess.run', side_effect=generate):
-            for user in ('hello', 'again', 'third', 'fourth'):
-                self.assertEqual(self.bot.infer(user), self.good)
-        self.assertEqual([u for u, _ in self.bot.history], ['again', 'third', 'fourth'])
-        before = copy.deepcopy(self.bot.history)
-        cases = [subprocess.CompletedProcess([], 0, b'bad output', b''),
-                 subprocess.CompletedProcess([], 0, chat.compact(dict(self.good, motion_id='023')).encode(), b''),
-                 subprocess.CompletedProcess([], 2, b'{}', b'engine failed')]
-        for result in cases:
-            with mock.patch('chat.subprocess.run', return_value=result), self.assertRaises(ValueError):
-                self.bot.infer('failure')
-            self.assertEqual(self.bot.history, before)
-        with mock.patch('chat.subprocess.run', side_effect=subprocess.TimeoutExpired('cli', 1)):
-            with self.assertRaises(subprocess.TimeoutExpired):
-                self.bot.infer('timeout')
-        self.assertEqual(self.bot.history, before)
-
     def test_config_paths_and_restrictions(self):
         with mock.patch.dict(os.environ, {'ROBI_MODEL': '~/test.gguf', 'ROBI_MOTION_INDEX':
                                           str(self.config['motion_index'])}):
@@ -118,41 +85,8 @@ class ChatTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             chat.Chat(dict(self.config, blocked_motion_ids=['999']))
         with mock.patch.dict(os.environ, {'LLAMA_ARG_INTERACTIVE': '1'}):
-            self.assertNotIn('LLAMA_ARG_INTERACTIVE', self.bot.environment())
+            self.assertNotIn('LLAMA_ARG_INTERACTIVE', Server(self.bot).environment())
 
-    def test_cli_transport_with_fake_executable(self):
-        with tempfile.TemporaryDirectory() as directory:
-            base = Path(directory)
-            fake = base / 'fake-cli'
-            fake.write_text('#!' + sys.executable + '\n' + '''
-import json, os, sys
-if '--help' in sys.argv:
-    print('--json-schema --no-conversation --no-display-prompt --simple-io --no-escape --no-context-shift')
-else:
-    print('engine diagnostic', file=sys.stderr)
-    print(os.environ['FAKE_RESPONSE'] + ' [end of text]')
-''')
-            fake.chmod(0o700)
-            model = base / 'fake.gguf'
-            model.touch()
-            env = dict(os.environ, ROBI_LLAMA_CLI=str(fake), ROBI_MODEL=str(model),
-                       FAKE_RESPONSE=chat.compact(self.good))
-            argv = [sys.executable, str(chat.BASE / 'chat.py'), '--once', 'こんにちは']
-            result = subprocess.run(argv, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-            self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertEqual(json.loads(result.stdout), self.good)
-            self.assertIn(b'"json_success":true', result.stderr)
-            env['FAKE_RESPONSE'] = 'invalid'
-            result = subprocess.run(argv, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-            self.assertNotEqual(result.returncode, 0)
-            self.assertEqual(result.stdout, b'')
-            self.assertIn(b'"json_success":false', result.stderr)
-            env['FAKE_RESPONSE'] = chat.compact(self.good)
-            result = subprocess.run(argv[:-2], input='こんにちは\nまたね\n/quit\n'.encode(),
-                                    env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-            self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertEqual(len(result.stdout.splitlines()), 2)
-            self.assertIn(b'"history_turns":1', result.stderr)
 
 
 if __name__ == '__main__':
