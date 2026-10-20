@@ -1,3 +1,5 @@
+対話＋モーション制御の実機起動は [Jetson接続環境](../README.md) を参照。以下は主にテキスト対話とLLMサーバーの説明。
+
 # ロビの常駐LLM対話試験
 
 会話開始時に既存CUDA版`llama-server`を1回だけ子プロセスとして起動し、Qwen3-1.7Bを会話中ずっとメモリに保持します。Python 3.6以降の標準ライブラリのみを使います。音声・ESP32・実機動作への接続はありません。
@@ -98,8 +100,8 @@ python3 jetson/llm/chat.py --once "こんにちは" > response.json 2> metrics.l
 
 | 設定 | 既定値／用途 | パス上書き環境変数 |
 |---|---|---|
-| llama_server | 隣接jetson-labの新規構築例のビルド先 | `ROBI_LLAMA_SERVER` |
-| model | Qwen3-1.7B-Q4_K_M.gguf | `ROBI_MODEL` |
+| llama_server | `~/jetson-work/llama-tx2/build-gpu/bin/llama-server` | `ROBI_LLAMA_SERVER` |
+| model | `~/jetson-work/models/Qwen3-1.7B-Q4_K_M.gguf` | `ROBI_MODEL` |
 | motion_index | 既存のモーション索引 | `ROBI_MOTION_INDEX` |
 | personality | personality.md | `ROBI_PERSONALITY` |
 | examples | examples.json | `ROBI_EXAMPLES` |

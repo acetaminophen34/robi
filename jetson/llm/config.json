@@ -1,5 +1,5 @@
 {
-  "model": "../../../jetson-lab/work/models/Qwen3-1.7B-Q4_K_M.gguf",
+  "model": "~/jetson-work/models/Qwen3-1.7B-Q4_K_M.gguf",
   "gpu_layers": 99,
   "threads": 4,
   "context_length": 8192,
@@ -13,7 +13,7 @@
     "023"
   ],
   "timeout_seconds": 600,
-  "llama_server": "../../../jetson-lab/work/llama-cuda/build-gpu/bin/llama-server",
+  "llama_server": "~/jetson-work/llama-tx2/build-gpu/bin/llama-server",
   "batch_size": 128,
   "ubatch_size": 128,
   "startup_timeout_seconds": 180,
