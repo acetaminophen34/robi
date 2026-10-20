@@ -19,12 +19,12 @@ Jetsonの初期設定、コンパイラ、CUDA互換パッチ、モデル配置�
 
 環境構築と`llama-server`の導入・追加ビルドは、[jetson-labの手順](https://github.com/acetaminophen34/jetson-lab/blob/main/llama-cpp/server.md)で管理します。準備済みなら、このページの起動手順から使えます。Robi側でCUDA環境やモデルを再構築する必要はありません。
 
-TX2の現在の配置では次の設定を使います。
+以下は、`~/Projects/`に両リポジトリをcloneし、jetson-labの標準手順で環境を構築した場合の例です。配置が異なる場合は参照先を変更してください。
 
 ```bash
-cd /home/a62ss/Projects/robi
-export ROBI_LLAMA_SERVER=/home/a62ss/jetson-work/llama-tx2/build-gpu/bin/llama-server
-export ROBI_MODEL=/home/a62ss/jetson-work/models/Qwen3-1.7B-Q4_K_M.gguf
+cd "$HOME/Projects/robi"
+export ROBI_LLAMA_SERVER="$HOME/Projects/jetson-lab/work/llama-cuda/build-gpu/bin/llama-server"
+export ROBI_MODEL="$HOME/Projects/jetson-lab/work/models/Qwen3-1.7B-Q4_K_M.gguf"
 # 最初に1回だけ応答を確認
 python3 jetson/llm/chat.py --once "こんにちは"
 # 続けて会話する場合はこちら
@@ -141,16 +141,16 @@ python3 jetson/llm/chat.py --check-prompt "こんにちは"
 GitHubに反映済みの変更をTX2へ取り込む手順です。ローカルだけのコミットは、pushされるまでTX2のpullには反映されません。TX2の既存ローカル変更がある場合はpullを止めて差分を確認します。ソースやモデルの再clone／再取得は不要です。
 
 ```bash
-cd /home/a62ss/Projects/jetson-lab
+cd "$HOME/Projects/jetson-lab"
 git status --short
 git pull --ff-only origin main
 # llama-cpp/server.mdに従い、既存build-gpuへllama-serverのみ追加ビルド
 
-cd /home/a62ss/Projects/robi
+cd "$HOME/Projects/robi"
 git status --short
 git pull --ff-only origin main
-export ROBI_LLAMA_SERVER=/home/a62ss/jetson-work/llama-tx2/build-gpu/bin/llama-server
-export ROBI_MODEL=/home/a62ss/jetson-work/models/Qwen3-1.7B-Q4_K_M.gguf
+export ROBI_LLAMA_SERVER="$HOME/Projects/jetson-lab/work/llama-cuda/build-gpu/bin/llama-server"
+export ROBI_MODEL="$HOME/Projects/jetson-lab/work/models/Qwen3-1.7B-Q4_K_M.gguf"
 python3 -m unittest discover -s jetson/llm -p 'test_*.py' -v
 python3 jetson/llm/chat.py --once "こんにちは"
 python3 jetson/llm/chat.py
@@ -163,8 +163,8 @@ pull前に`git status --short`が空であることを確認してください�
 push前にも試せるよう、TX2のGit作業ツリーを上書きしない転送先を用意します。Mac側で`TX2_HOST`を到達可能なIPまたはSSHホスト名に変更し、robiのルートで実行します。既存のSSH認証を使います。
 
 ```bash
-export TX2_HOST=a62ss@192.168.1.100   # 実際の接続先に変更
-export TX2_STAGE=/home/a62ss/robi-llm-preview
+export TX2_HOST="ユーザー名@Jetsonのホスト名またはIP"   # 実際の接続先に変更
+export TX2_STAGE="robi-llm-preview"   # 接続先ホームからの相対パス
 ssh "$TX2_HOST" "mkdir -p '$TX2_STAGE/jetson' '$TX2_STAGE/motion_editor' '$TX2_STAGE/docs'"
 scp -r jetson/llm "$TX2_HOST:$TX2_STAGE/jetson/"
 scp motion_editor/motions/index.json "$TX2_HOST:$TX2_STAGE/motion_editor/index.json"
@@ -175,12 +175,12 @@ ssh -t "$TX2_HOST"
 TX2に入った後、次を実行します。
 
 ```bash
-cat /home/a62ss/robi-llm-preview/docs/jetson-server.md
+cat "$HOME/robi-llm-preview/docs/jetson-server.md"
 # 上の文書に従って既存CUDA環境へllama-serverを追加ビルドする
-cd /home/a62ss/robi-llm-preview
-export ROBI_LLAMA_SERVER=/home/a62ss/jetson-work/llama-tx2/build-gpu/bin/llama-server
-export ROBI_MODEL=/home/a62ss/jetson-work/models/Qwen3-1.7B-Q4_K_M.gguf
-export ROBI_MOTION_INDEX=/home/a62ss/robi-llm-preview/motion_editor/index.json
+cd "$HOME/robi-llm-preview"
+export ROBI_LLAMA_SERVER="$HOME/Projects/jetson-lab/work/llama-cuda/build-gpu/bin/llama-server"
+export ROBI_MODEL="$HOME/Projects/jetson-lab/work/models/Qwen3-1.7B-Q4_K_M.gguf"
+export ROBI_MOTION_INDEX="$HOME/robi-llm-preview/motion_editor/index.json"
 python3 jetson/llm/chat.py --once "こんにちは"
 python3 jetson/llm/chat.py
 ```
