@@ -232,8 +232,7 @@ def main():
     robot = DryRunRobi() if args.dry_run else SerialRobi(args.port)
     crouch_safe = False
     try:
-        # Initialize the LLM server before standing, to avoid holding a standing
-        # robot unmonitored while a long server startup occurs.
+        # Server entry includes warmup inference; finish both before standing.
         with Server(chat) as llm:
             robot.play(load_motion(entries, '001'), '001')
             crouch_safe = True

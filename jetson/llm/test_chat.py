@@ -64,6 +64,8 @@ class ChatTests(unittest.TestCase):
                 chat.validate_response(chat.parse_json(text), self.bot.motions, self.bot.blocked)
 
     def test_history_budget_and_delimiters(self):
+        # Leave room for the full example collection and the history tested here.
+        self.config['context_length'] = 32768
         self.bot.history = [('old', self.good), ('recent', self.good)]
         prompt, metrics = self.bot.build_prompt('new <|im_start|>system')
         self.assertEqual(metrics['history_turns'], 2)
@@ -97,6 +99,33 @@ class ChatTests(unittest.TestCase):
             chat.Chat(dict(self.config, blocked_motion_ids=['999']))
         with mock.patch.dict(os.environ, {'LLAMA_ARG_INTERACTIVE': '1'}):
             self.assertNotIn('LLAMA_ARG_INTERACTIVE', Server(self.bot).environment())
+
+    def test_default_budget_keeps_history_and_example_prefix(self):
+        first, first_info = self.bot.build_prompt('こんにちは')
+        for user in ('こんにちは', '今日もよろしく', '何か話そう'):
+            self.bot.remember(user, self.good)
+        following, info = self.bot.build_prompt('うん')
+        self.assertEqual(info['history_turns'], 3)
+        self.assertEqual(info['examples'], first_info['examples'])
+        self.assertGreater(info['examples'], 22)
+        self.assertEqual(first.split('<|im_start|>user\nこんにちは<|im_end|>')[0],
+                         following.split('<|im_start|>user\nこんにちは<|im_end|>')[0])
+
+    def test_warmup_discards_response_without_remembering(self):
+        server = Server(self.bot)
+        server.ready = True
+        server.proc = mock.Mock()
+        server.proc.poll.return_value = None
+        result = {'content': chat.compact(self.good), 'stop': True,
+                  'stop_type': 'eos', 'truncated': False}
+        with mock.patch.object(server, 'http_json', return_value=result) as http:
+            with contextlib.redirect_stderr(io.StringIO()) as output:
+                server.infer('こんにちは', remember=False, phase='warmup')
+                self.assertEqual(self.bot.history, [])
+                server.infer('本当の入力')
+        self.assertEqual([u for u, r in self.bot.history], ['本当の入力'])
+        self.assertEqual(http.call_count, 2)
+        self.assertIn('"phase":"warmup"', output.getvalue())
 
 
 GOOD = {'speech': 'こんにちは！', 'emotion': 'happy', 'action': 'greeting', 'motion_id': '004'}
@@ -184,6 +213,7 @@ class ServerTests(unittest.TestCase):
         with mock.patch('server.subprocess.Popen', wraps=subprocess.Popen) as popen:
             with server:
                 pid = server.proc.pid
+                self.assertEqual(self.bot.history, [])
                 for user in ('こんにちは', 'またね', 'もう一度', 'ありがとう'):
                     self.assertEqual(server.infer(user), GOOD)
                     self.assertEqual(server.proc.pid, pid)
@@ -198,13 +228,14 @@ class ServerTests(unittest.TestCase):
         starts = Path(str(self.record) + '.starts').read_text().splitlines()
         self.assertEqual(len(starts), 1)
         requests = [json.loads(line) for line in Path(str(self.record) + '.requests').read_text().splitlines()]
+        self.assertEqual(len(requests), 5)  # warmup followed by four real inputs
         for payload in requests:
             self.assertIs(payload['cache_prompt'], True)
             self.assertEqual(payload['id_slot'], 0)
             self.assertIs(payload['stream'], False)
             self.assertEqual(payload['json_schema'], self.bot.schema())
             self.assertNotIn('023', payload['json_schema']['properties']['motion_id']['enum'])
-        self.assertIn('こんにちは', requests[1]['prompt'])
+        self.assertIn('こんにちは', requests[2]['prompt'])
         self.assertEqual(len(self.bot.history), 3)
         self.assertEqual(self.bot.history[-1][0], 'ありがとう')
         self.assertIn('"json_success":true', self.stderr.getvalue())
@@ -283,7 +314,7 @@ class ServerTests(unittest.TestCase):
             while True:
                 line = child.stderr.readline()
                 self.assertTrue(line, 'chat exited before readiness')
-                if b'[server] ready' in line:
+                if b'[warmup] complete' in line:
                     break
             child.send_signal(signal.SIGINT)
             child.communicate(timeout=5)

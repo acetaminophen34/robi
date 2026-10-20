@@ -46,6 +46,10 @@ def load_config(path):
     config = read_json(path)
     if not isinstance(config, dict):
         raise ValueError("config must be an object")
+    config.setdefault("history_reserve_tokens", 2048)
+    config.setdefault("warmup", True)
+    if type(config["warmup"]) is not bool:
+        raise ValueError("warmup must be a boolean")
     for key, env in PATH_ENV.items():
         value = os.environ.get(env, config.get(key))
         if not isinstance(value, str) or not value:
@@ -56,7 +60,8 @@ def load_config(path):
         target = Path(value)
         config[key] = (path.parent / target).resolve()
     for key, minimum in (("gpu_layers", 0), ("threads", 1), ("context_length", 64),
-                         ("max_tokens", 1), ("history_turns", 0), ("batch_size", 1), ("ubatch_size", 1)):
+                         ("max_tokens", 1), ("history_turns", 0), ("history_reserve_tokens", 0),
+                         ("batch_size", 1), ("ubatch_size", 1)):
         if type(config.get(key)) is not int or config[key] < minimum:
             raise ValueError("invalid integer setting: " + key)
     for key in ("temperature", "timeout_seconds", "startup_timeout_seconds", "shutdown_timeout_seconds"):
@@ -149,7 +154,11 @@ class Chat:
             raise ValueError("input is empty")
         system = self.personality + "\n" + (
             "今はテキスト試験。動作は実行されない。返答と意味が合う候補だけを選ぶ。"
-            "質問への説明や無関係な場面ではmotion_idをnullにする。"
+            "動作の依頼がなくても、返答の気持ちや会話の役割に合う動作を積極的に選ぶ。"
+            "うん・うんうんは相づちや共感、オッケーは了承、ウキウキは楽しい雑談、えっへんは得意な返答にも使える。"
+            "説明でも自然な身振りを添えてよい。動かない指定や、合う動作がない場合はmotion_idをnullにする。"
+            "特定の動作だけを断られた場合は、その動作を避けて相づちなどを選んでよい。"
+            "動作名への言及だけでその動作を選ばず、返答全体に合わせる。"
             "状態名は参考情報で現在の姿勢は不明。動作済みと話さない。"
             "出力はspeech(日本語),emotion,action,motion_idのJSONオブジェクト1個だけ。"
             "motion_idは候補の文字列IDかnull。思考・Markdown・前置き不要。/no_think\n"
@@ -159,17 +168,27 @@ class Chat:
         turns = self.config["history_turns"]
         history = list(self.history[-turns:]) if turns else []
         examples = list(self.examples)
-        while True:
+        def render(selected_examples, selected_history, current_user):
             prompt = message("system", system)
-            for example in examples:
+            for example in selected_examples:
                 prompt += message("user", example["user"])
                 prompt += message("assistant", compact(example["response"]))
-            for previous_user, response in history:
+            for previous_user, response in selected_history:
                 prompt += message("user", previous_user)
                 prompt += message("assistant", compact(response))
-            prompt += message("user", user)
+            prompt += message("user", current_user)
             # Qwen3 non-thinking assistant prefill; grammar begins AFTER this.
             prompt += "<|im_start|>assistant\n<think>\n\n</think>\n\n"
+            return prompt
+
+        # Keep a stable example prefix and leave space for user input/history.
+        # Reserve uses the same conservative UTF-8 byte bound as the prompt.
+        reserve = self.config["history_reserve_tokens"]
+        while examples and (len(render(examples, [], "").encode("utf-8")) + 32
+                            + reserve + self.config["max_tokens"] > self.config["context_length"]):
+            examples.pop()
+        while True:
+            prompt = render(examples, history, user)
             # Qwen3 byte-level BPE: UTF-8 bytes upper-bound text tokens.
             upper = len(prompt.encode("utf-8")) + 32
             if upper + self.config["max_tokens"] <= self.config["context_length"]:

@@ -79,7 +79,9 @@ python3 jetson/llm/chat.py --once "こんにちは" > response.json 2> metrics.l
 | 生成量やばらつきを変える | 設定の`max_tokens`／`temperature`を編集 |
 | 終了する | `/quit`、Ctrl+D（EOF）、Ctrl+C |
 
-`[server] ready`が出たら入力できます。初回のモデル読み込みとプロンプト評価には時間がかかります。2発話目以降も同じプログラムを使い続けることで、モデル常駐と共通入力のKV再利用を利用できます。手動で別のllama-serverを起動しておく必要はありません。
+モデル読み込み後、入力受付前に「こんにちは」で1回予備推論します。`[warmup] complete; ready to talk`の後に入力できます。予備推論の返答は表示せず、会話履歴にも追加しません。実機版でも立ち上がり動作の前に完了し、予備推論のモーションは実行しません。失敗した場合は起動を中止してサーバーを回収します。`--once`でも同じ準備を行い、`--check-prompt`は推論しません。設定の`warmup: false`で省略できます。
+
+初回のモデル読み込みと共通プロンプト評価を起動時に済ませ、実際の発話では同じスロットのKV再利用を要求します。入力内容や履歴で変わる部分の評価と回答生成は発話ごとに必要です。手動で別のllama-serverを起動しておく必要はありません。
 
 ## 困ったとき
 
@@ -107,10 +109,12 @@ python3 jetson/llm/chat.py --once "こんにちは" > response.json 2> metrics.l
 | examples | examples.json | `ROBI_EXAMPLES` |
 | log_dir | logs/ | `ROBI_LLM_LOG_DIR` |
 | gpu_layers / threads | 99 / 4 | — |
-| context_length | 8192 | — |
+| context_length | 16384 | — |
 | batch_size / ubatch_size | 128 / 128 | — |
-| max_tokens / temperature | 192 / 0.6 | — |
+| max_tokens / temperature | 384 / 0.4 | — |
 | history_turns | 直近3往復 | — |
+| history_reserve_tokens | 入力・履歴用の予算2048（UTF-8バイトによる上限） | — |
+| warmup | true：入力受付前に予備推論 | — |
 | blocked_motion_ids | `["023"]` | — |
 | startup_timeout_seconds | 起動待機180秒 | — |
 | timeout_seconds | HTTP通信の待機上限600秒 | — |
@@ -125,7 +129,11 @@ python3 jetson/llm/chat.py --config jetson/llm/config.local.json
 
 性格・返答の長さは`personality.md`、例文は`examples.json`、生成上限とtemperatureは設定JSONで変更します。ファイルは起動時に読みます。emotion/actionは厳密な固定カテゴリを設けず、非空文字列として検証します。
 
-コンテキスト8192とバッチ128はTX2の共有8GBメモリで使用量・速度の実測が必要です。不要な推論プロセスを止め、`free -h`と`tegrastats`で監視してください。並列スロットは1に固定しています。メモリ不足ならローカル設定でコンテキスト・バッチを下げます。保守的な入力予算を満たせなければ推論前にエラーになります。
+`examples.json`は56例です。動作の依頼に加え、相づち・共感に「うん」「うんうん」、了承に「オッケー」、楽しい雑談に「ウキウキ」、得意な返答に「えっへん」を使うなど、会話にも身振りを添えます。「踊らないで」にはダンスを避けてうなずき、「動かないで」にはnullを選びます。相手からのお礼とロビ自身のお礼、相手による訂正とロビからの訂正も区別します。入力予算を超えると末尾から例文を除くため、基本的な会話と動作選択の区別を前半に置いています。全例が毎回入力されるわけではありません。使用件数は`--check-prompt`で確認できます。
+
+出力上限384は回答の打ち切りを減らすための余裕です。常に384トークン生成する指定ではなく、短い返答の方針は維持します。temperatureは0.4に下げて返答のばらつきを抑えます。設定変更だけで正確さが保証されるわけではありません。
+
+コンテキスト16384とバッチ128はTX2の共有8GBメモリで使用量・速度の実測が必要です。不要な推論プロセスを止め、`free -h`と`tegrastats`で監視してください。並列スロットは1に固定しています。メモリ不足ならローカル設定でコンテキストを8192に戻すか、バッチを下げます。保守的な入力予算を満たせなければ推論前にエラーになります。
 
 ## API・履歴・KVキャッシュ
 
@@ -134,7 +142,7 @@ python3 jetson/llm/chat.py --config jetson/llm/config.local.json
 - `127.0.0.1`の空きポートに自分専用の子サーバーを起動し、`/health`が200・status=okになるまで待ちます。起動ごとのAPIキーで`/props`も確認します。HTTPプロキシ設定は使いません。
 - `POST /completion`へ完全なChatMLプロンプト、`json_schema`、`cache_prompt:true`、`id_slot:0`、`stream:false`、生成上限とtemperatureを送ります。自動チャットテンプレートを重ねないネイティブcompletionです。
 - サーバーの1スロット内のKVを再利用します。プロンプトは性格→モーション候補→Few-shot→直近履歴→今回の入力の順で、共通接頭辞を安定させます。全体は毎回送りますが、共通部分の再評価を省くことをサーバーへ要求します。
-- 履歴はPython側で成功した直近の往復だけを保持します。プロンプト予算不足時は古い履歴、次に末尾の例文を除外します。固定部分や今回の入力は切り詰めません。
+- 履歴はPython側で成功した直近の往復だけを保持します。例文は入力・履歴用の予算を残して先頭から選び、通常の会話では共通接頭辞を安定させます。それでも予算不足になる長い入力・履歴では古い履歴、次に末尾の例文を除外します。固定部分や今回の入力は切り詰めません。
 - モデルとKVはプロセス存続中だけ保持します。`prompt-cache.bin`、`--prompt-cache`、スロット保存・復元APIには依存しません。旧ファイルが壊れていても読み込みません。終了後の次の起動は初回ロード・全入力評価が必要です。
 
 Qwen3向け`/no_think`と空のthinkブロックをassistant末尾に先置きし、その直後からJSON Schemaで生成を制約します。`content`全体を厳密にJSON解析します。CLIの終了装飾除去や正規表現によるJSON抽出はありません。
@@ -149,7 +157,7 @@ Qwen3向け`/no_think`と空のthinkブロックをassistant末尾に先置き�
 - プロンプト文字数、UTF-8バイト数＋32による保守的トークン上限、実際に提示した履歴・例文・候補件数。
 - サーバーの`timings`、`tokens_evaluated`、`tokens_cached`。
 
-HTTP時間に初回モデル起動は含めず、起動時間は別の`[server] ready`で表示します。`timings.prompt_n`は今回処理した入力トークン数です。この版の`tokens_cached`は完了時の`n_past`なので、今回のキャッシュヒット数と同一視しません。初回／次回の`prompt_n`、時間、詳細ログを比較してください。履歴をずらすと固定部分以降の再評価が増えます。
+HTTP時間に初回モデル起動は含めず、起動時間は別の`[server] ready`で表示します。予備推論の計測は`phase: warmup`、実際の発話は`phase: conversation`です。`timings.prompt_n`は今回処理した入力トークン数です。この版の`tokens_cached`は完了時の`n_past`なので、今回のキャッシュヒット数と同一視しません。予備推論／実発話の`prompt_n`、時間、詳細ログを比較してください。履歴をずらすと固定部分以降の再評価が増えます。
 
 プロンプト予算は実際のtokenizer測定ではなく、Qwen3 byte-level BPEを前提にした保守的上限です。入力上限＋生成上限が設定コンテキスト内に収まるよう管理し、`--no-context-shift`で暗黙の切り詰めを防ぎます。
 

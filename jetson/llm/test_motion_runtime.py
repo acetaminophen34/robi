@@ -52,9 +52,9 @@ class RuntimeTests(unittest.TestCase):
             with patch.dict(os.environ, {'ROBI_MODEL': model, 'ROBI_LLAMA_SERVER': server,
                                         'ROBI_MOTION_INDEX': index}):
                 config = load_config(runtime.LLM / 'config.json')
-            self.assertEqual(str(config['model']), model)
-            self.assertEqual(str(config['llama_server']), server)
-            self.assertEqual(str(config['motion_index']), index)
+            self.assertEqual(config['model'], Path(model).resolve())
+            self.assertEqual(config['llama_server'], Path(server).resolve())
+            self.assertEqual(config['motion_index'], Path(index).resolve())
 
 
 if __name__ == '__main__':

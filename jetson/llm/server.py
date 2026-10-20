@@ -108,6 +108,11 @@ class Server:
                         self.ready = True
                         print('[server] ready in {:.3f}s; pid={}'.format(
                             time.monotonic() - started, self.proc.pid), file=sys.stderr, flush=True)
+                        if c.get('warmup', True):
+                            print('[warmup] starting; waiting before accepting input',
+                                  file=sys.stderr, flush=True)
+                            self.infer('こんにちは', remember=False, phase='warmup')
+                            print('[warmup] complete; ready to talk', file=sys.stderr, flush=True)
                         return self
                 except error.HTTPError as exc:
                     exc.close()
@@ -145,8 +150,8 @@ class Server:
     def __exit__(self, exc_type, exc, traceback):
         self.close()
 
-    def infer(self, user):
-        metrics = {'json_success': False, 'inference_seconds': None, 'prompt_chars': None}
+    def infer(self, user, remember=True, phase='conversation'):
+        metrics = {'phase': phase, 'json_success': False, 'inference_seconds': None, 'prompt_chars': None}
         started = None
         try:
             if not self.ready or self.proc.poll() is not None:
@@ -172,7 +177,8 @@ class Server:
                 raise
             for field in ('tokens_cached', 'tokens_evaluated', 'timings'):
                 metrics[field] = result.get(field)
-            self.chat.remember(user, response)
+            if remember:
+                self.chat.remember(user, response)
             metrics.update(json_success=True, motion_id=response['motion_id'],
                            motion_name=self.chat.motions[response['motion_id']]['name']
                            if response['motion_id'] is not None else None)
