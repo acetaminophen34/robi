@@ -4,6 +4,20 @@
 
 ESP32を用いたサーボモーター制御、Pythonによる操作GUI・モーション編集、Jetsonを用いた認識処理、制御基板の設計などを扱います。
 
+## 使い方を探す
+
+| やりたいこと | 案内 |
+|---|---|
+| ロビとテキストで会話する | [LLM対話の環境・起動方法](jetson/llm/README.md#起動) |
+| どのプログラムを使うか確認する | [LLMファイルの役割](jetson/llm/README.md#ファイルの役割) |
+| 口調・返答・モーション選択を調整する | [LLM対話の設定](jetson/llm/README.md#設定) |
+| 起動や推論のエラーを調べる | [困ったとき](jetson/llm/README.md#困ったとき) |
+| Jetsonへコードを反映する | [GitHub経由](jetson/llm/README.md#github経由のデプロイ)・[SSH/SCP経由](jetson/llm/README.md#macからsshscpで今回の差分を試す) |
+| モーションを編集・再生する | [モーションエディタの使い方](motion_editor/README.md) |
+| Jetsonの推論環境を準備する | [jetson-labの環境構築](https://github.com/acetaminophen34/jetson-lab)・[llama-serverの追加ビルド](https://github.com/acetaminophen34/jetson-lab/blob/main/llama-cpp/server.md) |
+
+LLM対話は`jetson/llm/chat.py`から起動します。現在はテキスト入力とJSON出力の試験で、モーションの実機実行は行いません。サーバーの導入・ビルドはjetson-lab、対話の使い方・設定はこのリポジトリで管理しています。
+
 ## ディレクトリ構成
 
 | ディレクトリ | 内容 |
