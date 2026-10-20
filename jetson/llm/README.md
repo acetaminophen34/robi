@@ -2,9 +2,22 @@
 
 会話開始時に既存CUDA版`llama-server`を1回だけ子プロセスとして起動し、Qwen3-1.7Bを会話中ずっとメモリに保持します。Python 3.6以降の標準ライブラリのみを使います。音声・ESP32・実機動作への接続はありません。
 
+## 使用環境
+
+| 項目 | 対象 |
+|---|---|
+| 実機 | Jetson TX2 8GB |
+| JetPack / CUDA | 4.6.6 / 10.2 |
+| 推論エンジン | CUDAパッチ適用済みllama.cpp build5092（d3bd7193b） |
+| モデル | Qwen3-1.7B-Q4_K_M.gguf |
+| Python | 3.6以降・標準ライブラリのみ（pip追加不要） |
+| 入出力 | 日本語テキスト入力 → speech/emotion/action/motion_idのJSON |
+
+Jetsonの初期設定、コンパイラ、CUDA互換パッチ、モデル配置は[jetson-lab](https://github.com/acetaminophen34/jetson-lab)を参照してください。このリポジトリでは対話、性格・例文、履歴、モーション選択を管理します。
+
 ## 起動
 
-既存CUDAビルドにllama-serverを追加する方法は、jetson-labの[サーバー手順](https://github.com/acetaminophen34/jetson-lab/blob/main/llama-cpp/server.md)にあります。同ページは今回の変更をpushした後にGitHubで参照できます。ローカルでは`../jetson-lab/llama-cpp/server.md`を読んでください。
+環境構築と`llama-server`の導入・追加ビルドは、[jetson-labの手順](https://github.com/acetaminophen34/jetson-lab/blob/main/llama-cpp/server.md)で管理します。準備済みなら、このページの起動手順から使えます。Robi側でCUDA環境やモデルを再構築する必要はありません。
 
 TX2の現在の配置では次の設定を使います。
 
@@ -12,7 +25,9 @@ TX2の現在の配置では次の設定を使います。
 cd /home/a62ss/Projects/robi
 export ROBI_LLAMA_SERVER=/home/a62ss/jetson-work/llama-tx2/build-gpu/bin/llama-server
 export ROBI_MODEL=/home/a62ss/jetson-work/models/Qwen3-1.7B-Q4_K_M.gguf
+# 最初に1回だけ応答を確認
 python3 jetson/llm/chat.py --once "こんにちは"
+# 続けて会話する場合はこちら
 python3 jetson/llm/chat.py
 ```
 
@@ -27,6 +42,33 @@ python3 jetson/llm/chat.py --once "こんにちは" > response.json 2> metrics.l
 詳細なllama.cppログは`jetson/llm/logs/llama-server-*.log`へ実行ごとに保存し、端末に内容を流しません。起動時とエラー時にパスを表示します。HTTPエラー本文や検証に失敗した出力も同ファイルに保存するため、ログには会話内容が含まれ得ます。ファイル権限は0600、Git管理対象外です。不要なログは手動で整理してください。
 
 起動失敗、HTTPエラー、タイムアウト、出力検証エラーは、サーバーを終了して非ゼロ終了します。失敗した発話は履歴に追加しません。再起動や架空の返答で成功扱いにはしません。終了はterminate→設定秒数待機→必要ならkill→waitの順です。`__enter__`途中の失敗も同じ後始末を行います。OSによる強制停止（SIGKILL等）まで回復する常駐サービス管理機能はありません。
+
+## よく使う操作
+
+| やりたいこと | 操作 |
+|---|---|
+| 会話を続ける | `python3 jetson/llm/chat.py`を起動して1行ずつ入力 |
+| 1回だけ確認する | `python3 jetson/llm/chat.py --once "またね"` |
+| モデルなしで設定を確認する | `python3 jetson/llm/chat.py --check-prompt "こんにちは"` |
+| 口調・返答の長さを変える | `personality.md`を編集して再起動 |
+| 応答例を増やす | `examples.json`を編集して再起動 |
+| 生成量やばらつきを変える | 設定の`max_tokens`／`temperature`を編集 |
+| 終了する | `/quit`、Ctrl+D（EOF）、Ctrl+C |
+
+`[server] ready`が出たら入力できます。初回のモデル読み込みとプロンプト評価には時間がかかります。2発話目以降も同じプログラムを使い続けることで、モデル常駐と共通入力のKV再利用を利用できます。手動で別のllama-serverを起動しておく必要はありません。
+
+## 困ったとき
+
+| 表示・症状 | 確認すること |
+|---|---|
+| `llama-server missing or not executable` | `ROBI_LLAMA_SERVER`を確認。未ビルドならjetson-labのサーバー手順へ |
+| `GGUF model missing` | `ROBI_MODEL`が既存GGUFを指しているか確認 |
+| 起動失敗・起動タイムアウト | 表示されたログを確認。ライブラリ、空きメモリ、GPU配置を確認 |
+| `generation incomplete` | 詳細ログと`max_tokens`を確認。生成上限で打ち切られていないか確認 |
+| `prompt exceeds context budget` | 入力を短くするか、メモリを確認して`context_length`を調整 |
+| 旧`prompt-cache.bin`が壊れている | 常駐方式では読み込まないため、キャッシュ作り直しは不要 |
+
+失敗時はプログラムが終了します。原因を修正してから同じ起動コマンドで再実行してください。JSONの`motion_id`は選択結果であり、実機に動作を送ったことを意味しません。
 
 ## 設定
 
@@ -96,7 +138,7 @@ python3 jetson/llm/chat.py --check-prompt "こんにちは"
 
 ## GitHub経由のデプロイ
 
-以下は、今回の変更をレビュー・コミットし、ユーザーの明示指示でGitHubへpushした後の手順です。現時点ではpushしていません。TX2の既存ローカル変更がある場合はpullを止めて差分を確認します。ソースやモデルの再clone／再取得は不要です。
+GitHubに反映済みの変更をTX2へ取り込む手順です。ローカルだけのコミットは、pushされるまでTX2のpullには反映されません。TX2の既存ローカル変更がある場合はpullを止めて差分を確認します。ソースやモデルの再clone／再取得は不要です。
 
 ```bash
 cd /home/a62ss/Projects/jetson-lab
