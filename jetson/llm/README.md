@@ -43,12 +43,12 @@ Jetsonの初期設定、コンパイラ、CUDA互換パッチ、モデル配置�
 
 環境構築と`llama-server`の導入・追加ビルドは、[jetson-labの手順](https://github.com/acetaminophen34/jetson-lab/blob/main/llama-cpp/server.md)で管理します。準備済みなら、このページの起動手順から使えます。Robi側でCUDA環境やモデルを再構築する必要はありません。
 
-以下は、`~/Projects/`に両リポジトリをcloneし、jetson-labの標準手順で環境を構築した場合の例です。配置が異なる場合は参照先を変更してください。
+以下はTX2の配置（`~/robi`、`~/jetson-lab`、`~/jetson-work`）での起動例です。配置が異なる場合は参照先を変更してください。
 
 ```bash
-cd "$HOME/Projects/robi"
-export ROBI_LLAMA_SERVER="$HOME/Projects/jetson-lab/work/llama-cuda/build-gpu/bin/llama-server"
-export ROBI_MODEL="$HOME/Projects/jetson-lab/work/models/Qwen3-1.7B-Q4_K_M.gguf"
+cd "$HOME/robi"
+export ROBI_LLAMA_SERVER="$HOME/jetson-work/llama-tx2/build-gpu/bin/llama-server"
+export ROBI_MODEL="$HOME/jetson-work/models/Qwen3-1.7B-Q4_K_M.gguf"
 # 最初に1回だけ応答を確認
 python3 jetson/llm/chat.py --once "こんにちは"
 # 続けて会話する場合はこちら
@@ -165,16 +165,16 @@ python3 jetson/llm/chat.py --check-prompt "こんにちは"
 GitHubに反映済みの変更をTX2へ取り込む手順です。ローカルだけのコミットは、pushされるまでTX2のpullには反映されません。TX2の既存ローカル変更がある場合はpullを止めて差分を確認します。ソースやモデルの再clone／再取得は不要です。
 
 ```bash
-cd "$HOME/Projects/jetson-lab"
+cd "$HOME/jetson-lab"
 git status --short
 git pull --ff-only origin main
-# llama-cpp/server.mdに従い、既存build-gpuへllama-serverのみ追加ビルド
+# llama-serverが未導入の場合のみ、llama-cpp/server.mdの手順を実行
 
-cd "$HOME/Projects/robi"
+cd "$HOME/robi"
 git status --short
 git pull --ff-only origin main
-export ROBI_LLAMA_SERVER="$HOME/Projects/jetson-lab/work/llama-cuda/build-gpu/bin/llama-server"
-export ROBI_MODEL="$HOME/Projects/jetson-lab/work/models/Qwen3-1.7B-Q4_K_M.gguf"
+export ROBI_LLAMA_SERVER="$HOME/jetson-work/llama-tx2/build-gpu/bin/llama-server"
+export ROBI_MODEL="$HOME/jetson-work/models/Qwen3-1.7B-Q4_K_M.gguf"
 python3 -m unittest discover -s jetson/llm -p 'test_*.py' -v
 python3 jetson/llm/chat.py --once "こんにちは"
 python3 jetson/llm/chat.py
@@ -202,8 +202,8 @@ TX2に入った後、次を実行します。
 cat "$HOME/robi-llm-preview/docs/jetson-server.md"
 # 上の文書に従って既存CUDA環境へllama-serverを追加ビルドする
 cd "$HOME/robi-llm-preview"
-export ROBI_LLAMA_SERVER="$HOME/Projects/jetson-lab/work/llama-cuda/build-gpu/bin/llama-server"
-export ROBI_MODEL="$HOME/Projects/jetson-lab/work/models/Qwen3-1.7B-Q4_K_M.gguf"
+export ROBI_LLAMA_SERVER="$HOME/jetson-work/llama-tx2/build-gpu/bin/llama-server"
+export ROBI_MODEL="$HOME/jetson-work/models/Qwen3-1.7B-Q4_K_M.gguf"
 export ROBI_MOTION_INDEX="$HOME/robi-llm-preview/motion_editor/index.json"
 python3 jetson/llm/chat.py --once "こんにちは"
 python3 jetson/llm/chat.py
